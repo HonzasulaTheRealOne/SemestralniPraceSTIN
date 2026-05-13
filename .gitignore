@@ -1,0 +1,18 @@
+# .NET Core Backend
+BackendAPI/bin/
+BackendAPI/obj/
+BackendAPI/app.db
+BackendAPI/app.db-shm
+BackendAPI/app.db-wal
+BackendAPI/.vs/
+BackendAPI/*.user
+BackendAPI/appsettings.Development.json
+
+# React Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+
+# OS files
+.DS_Store
+Thumbs.db

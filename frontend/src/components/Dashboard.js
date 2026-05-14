@@ -45,22 +45,29 @@ function Dashboard({ onLogout }) {
     }, [startDate, endDate]);
 
     const loadDashboardData = async () => {
-        try {
-            setLoading(true);
-            const userSettings = await settingsService.getSettings();
-            setSettings(userSettings);
-            setEditBase(userSettings.baseCurrency);
-            setEditSelected(userSettings.selectedCurrencies);
-            const analysisData = await ratesService.analyze(startDate, endDate);
-            setData(analysisData);
-        } catch (err) { console.error(err); } finally { setLoading(false); }
-    };
+    try {
+        setLoading(true);
+        const userSettings = await settingsService.getSettings();
+        setSettings(userSettings);
+        setEditBase(userSettings.baseCurrency);
+        setEditSelected(userSettings.selectedCurrencies);
+        setLang(userSettings.language || 'CZ');
 
-    const handleSaveSettings = async () => {
-        await settingsService.updateSettings({ id: 1, baseCurrency: editBase, selectedCurrencies: editSelected });
-        setIsEditing(false);
-        loadDashboardData();
-    };
+        const analysisData = await ratesService.analyze(startDate, endDate);
+        setData(analysisData);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+};
+
+            const handleSaveSettings = async () => {
+            await settingsService.updateSettings({ 
+                id: 1, 
+                baseCurrency: editBase, 
+                selectedCurrencies: editSelected,
+                language: lang
+            });
+            setIsEditing(false);
+            loadDashboardData();
+        };
 
     const toggleCurrency = (currency) => {
         let current = editSelected ? editSelected.split(',') : [];

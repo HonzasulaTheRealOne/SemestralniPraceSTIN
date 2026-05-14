@@ -39,7 +39,8 @@ namespace BackendAPI.Tests
         [Fact]
         public async Task GetTimeSeries_ApiSuccess_SavesToCache()
         {
-            var json = "{\"rates\":{\"2026-01-01\":{\"USD\":1.1}}}";
+            // ÚPRAVA PRO NOVEJ KÓD: Simulujeme nový formát s "quotes" a "success" místo "rates"
+            var json = "{\"success\":true,\"source\":\"USD\",\"quotes\":{\"USDUSD\":1.1}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client, GetMockConfig());
             var db = GetDb();
@@ -82,7 +83,8 @@ namespace BackendAPI.Tests
         [Fact]
         public async Task GetAvailableCurrenciesAsync_Success_ReturnsList()
         {
-            var json = "{\"currencies\":{\"EUR\":\"Euro\",\"USD\":\"Dollar\"}}";
+            // ÚPRAVA PRO NOVEJ KÓD: Zahrnuto "success":true
+            var json = "{\"success\":true,\"currencies\":{\"EUR\":\"Euro\",\"USD\":\"Dollar\"}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client, GetMockConfig());
 

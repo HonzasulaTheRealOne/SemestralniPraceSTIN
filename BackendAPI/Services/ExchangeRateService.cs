@@ -28,7 +28,6 @@ namespace BackendAPI.Services
         public ExchangeRateService(HttpClient httpClient, IConfiguration config)
         {
             _httpClient = httpClient;
-            // Tvůj aktuální klíč
             _apiKey = config["ExchangeRateApiKey"] ?? "9df2dbeafc600550c8b34becd44556b2";
         }
 
@@ -36,10 +35,8 @@ namespace BackendAPI.Services
         {
             var response = await _httpClient.GetAsync($"{ApiBase}/list?access_key={_apiKey}");
             var content = await response.Content.ReadAsStringAsync();
-            
             using var doc = JsonDocument.Parse(content);
             
-            // Detailní zachycení chyby API
             if (doc.RootElement.TryGetProperty("success", out var successEl) && successEl.GetBoolean() == false)
             {
                 var error = doc.RootElement.GetProperty("error").GetProperty("info").GetString();
@@ -52,95 +49,91 @@ namespace BackendAPI.Services
                 foreach (var prop in currenciesElement.EnumerateObject()) currencies.Add(prop.Name);
                 return currencies;
             }
-            
-            throw new Exception($"Neočekávaný formát z API: {content}");
+            throw new Exception($"Neočekávaný formát: {content}");
         }
 
         public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurr, string symbols, string start, string end, AppDbContext db)
         {
-            try
+            var result = new Dictionary<string, Dictionary<string, decimal>>();
+            var startDate = DateTime.Parse(start);
+            var endDate = DateTime.Parse(end);
+            var requestedSymbols = symbols.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+
+            // Slučka přes dny - obchází zablokovaný endpoint /timeseries
+            for (var date = startDate; date <= endDate; date = date.AddDays(1))
             {
-                // TRIK PRO FREE PLÁN: Záměrně neposíláme parametr &base=. API tak použije defaultní EUR.
-                // Do symbols ale přidáme i naši zvolenou základní měnu, abychom znali její kurz vůči EUR a mohli provést přepočet.
-                var symbolsWithBase = $"{symbols},{baseCurr}";
-                var url = $"{ApiBase}/timeseries?access_key={_apiKey}&symbols={symbolsWithBase}&start_date={start}&end_date={end}";
+                string dateStr = date.ToString("yyyy-MM-dd");
                 
-                var response = await _httpClient.GetAsync(url);
-                var content = await response.Content.ReadAsStringAsync();
+                // 1. Zkontrolujeme Cache
+                var cachedForDay = await db.CachedRates.Where(r => r.BaseCurrency == baseCurr && r.Date == dateStr && requestedSymbols.Contains(r.Currency)).ToListAsync();
 
-                using var data = JsonDocument.Parse(content);
-
-                if (data.RootElement.TryGetProperty("success", out var successEl) && successEl.GetBoolean() == false)
+                if (cachedForDay.Count >= requestedSymbols.Count && requestedSymbols.Count > 0)
                 {
-                    var error = data.RootElement.GetProperty("error").GetProperty("info").GetString();
-                    throw new Exception($"API Error: {error}");
+                    result.Add(dateStr, cachedForDay.ToDictionary(r => r.Currency, r => r.Rate));
+                    continue;
                 }
 
-                if (data.RootElement.TryGetProperty("rates", out var ratesProp))
+                // 2. Pokud není v Cache, stáhneme /historical
+                try
                 {
-                    var parsedRates = new Dictionary<string, Dictionary<string, decimal>>();
-                    var requestedSymbols = symbols.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                    var symbolsWithBase = $"{symbols},{baseCurr}";
+                    var url = $"{ApiBase}/historical?access_key={_apiKey}&date={dateStr}&symbols={symbolsWithBase}";
+                    
+                    var response = await _httpClient.GetAsync(url);
+                    var content = await response.Content.ReadAsStringAsync();
+                    using var data = JsonDocument.Parse(content);
 
-                    foreach (var dateProp in ratesProp.EnumerateObject())
+                    if (data.RootElement.TryGetProperty("success", out var successEl) && successEl.GetBoolean() == false)
                     {
-                        var dayRates = new Dictionary<string, decimal>();
-                        var eurBasedRates = new Dictionary<string, decimal>();
-
-                        foreach (var currProp in dateProp.Value.EnumerateObject())
-                        {
-                            eurBasedRates.Add(currProp.Name, currProp.Value.GetDecimal());
-                        }
-
-                        // MATEMATICKÝ PŘEPOČET NA LOKÁLNÍ STRANĚ:
-                        // Zjistíme kurz požadované základní měny vůči EUR.
-                        decimal baseRateToEur = baseCurr == "EUR" ? 1m : (eurBasedRates.ContainsKey(baseCurr) ? eurBasedRates[baseCurr] : 1m);
-
-                        // Přepočítáme všechny kurzy na zvolenou základní měnu.
-                        foreach (var symbol in requestedSymbols)
-                        {
-                            if (eurBasedRates.ContainsKey(symbol) && baseRateToEur > 0)
-                            {
-                                var calculatedRate = eurBasedRates[symbol] / baseRateToEur;
-                                dayRates.Add(symbol, Math.Round(calculatedRate, 4));
-                            }
-                        }
-                        parsedRates.Add(dateProp.Name, dayRates);
+                        var error = data.RootElement.GetProperty("error").GetProperty("info").GetString();
+                        db.Logs.Add(new Log { Level = "Warning", Message = $"API Error pro {dateStr}: {error}" });
+                        await db.SaveChangesAsync();
+                        continue;
                     }
 
-                    // Uložíme reálná převedená data do databáze (Cache)
-                    await SaveRatesToCache(parsedRates, baseCurr, db);
-                    return parsedRates;
-                }
-                throw new Exception($"Chybí pole rates. Obsah: {content}");
-            }
-            catch (Exception ex)
-            {
-                // Zapíšeme reálný důvod selhání do UI Logů
-                db.Logs.Add(new Log { Level = "Error", Message = $"TimeSeries: {ex.Message}" });
-                await db.SaveChangesAsync();
-                
-                // Při výpadku vrátíme to, co se do Cache uložilo minule (žádná falešná data)
-                return await GetRatesFromCache(baseCurr, symbols.Split(','), db);
-            }
-        }
+                    // APILayer vrací u Free plánu "quotes" místo "rates" a dává tam prefixy např. "USDEUR"
+                    JsonElement ratesObj = data.RootElement.TryGetProperty("rates", out var r) ? r : 
+                                           data.RootElement.TryGetProperty("quotes", out var q) ? q : default;
 
-        private async Task SaveRatesToCache(Dictionary<string, Dictionary<string, decimal>> data, string baseCurr, AppDbContext db)
-        {
-            foreach (var dateEntry in data)
-            {
-                foreach (var rateEntry in dateEntry.Value)
+                    if (ratesObj.ValueKind == JsonValueKind.Undefined) continue;
+
+                    string sourceCurrency = data.RootElement.TryGetProperty("source", out var src) ? src.GetString() : "USD";
+
+                    var dayRates = new Dictionary<string, decimal>();
+                    var rawRates = new Dictionary<string, decimal>();
+
+                    foreach (var prop in ratesObj.EnumerateObject())
+                    {
+                        string currencyCode = prop.Name.Length == 6 && prop.Name.StartsWith(sourceCurrency) ? prop.Name.Substring(3) : prop.Name;
+                        rawRates.Add(currencyCode, prop.Value.GetDecimal());
+                    }
+
+                    // Matematický přepočet z fixní měny na uživatelovu měnu (obchází zákaz změny BASE na free tarifu)
+                    decimal baseRateToSource = baseCurr == sourceCurrency ? 1m : (rawRates.ContainsKey(baseCurr) ? rawRates[baseCurr] : 1m);
+
+                    foreach (var symbol in requestedSymbols)
+                    {
+                        if (rawRates.ContainsKey(symbol) && baseRateToSource > 0)
+                        {
+                            var calculatedRate = rawRates[symbol] / baseRateToSource;
+                            var roundedRate = Math.Round(calculatedRate, 4);
+                            dayRates.Add(symbol, roundedRate);
+                            
+                            db.CachedRates.Add(new CachedRate { Date = dateStr, BaseCurrency = baseCurr, Currency = symbol, Rate = roundedRate });
+                        }
+                    }
+
+                    result.Add(dateStr, dayRates);
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception ex)
                 {
-                    var exists = await db.CachedRates.AnyAsync(r => r.Date == dateEntry.Key && r.Currency == rateEntry.Key && r.BaseCurrency == baseCurr);
-                    if (!exists) db.CachedRates.Add(new CachedRate { Date = dateEntry.Key, BaseCurrency = baseCurr, Currency = rateEntry.Key, Rate = rateEntry.Value });
+                    db.Logs.Add(new Log { Level = "Error", Message = $"Chyba při stahování {dateStr}: {ex.Message}" });
+                    await db.SaveChangesAsync();
                 }
             }
-            await db.SaveChangesAsync();
-        }
 
-        private async Task<Dictionary<string, Dictionary<string, decimal>>> GetRatesFromCache(string baseCurr, string[] symbols, AppDbContext db)
-        {
-            var cached = await db.CachedRates.Where(r => r.BaseCurrency == baseCurr && symbols.Contains(r.Currency)).ToListAsync();
-            return cached.GroupBy(r => r.Date).ToDictionary(g => g.Key, g => g.ToDictionary(r => r.Currency, r => r.Rate));
+            return result;
         }
 
         public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> data) => data.SelectMany(d => d.Value).OrderByDescending(v => v.Value).FirstOrDefault().Key ?? "";

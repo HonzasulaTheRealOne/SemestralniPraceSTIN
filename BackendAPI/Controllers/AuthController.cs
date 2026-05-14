@@ -25,23 +25,24 @@ namespace BackendAPI.Controllers
             {
                 var token = _authService.GenerateJwtToken(model.Username);
                 
+                // Přidání do logů při úspěchu
                 _context.Logs.Add(new Log { Level = "Info", Message = $"Uživatel '{model.Username}' se úspěšně přihlásil." });
                 await _context.SaveChangesAsync();
                 
                 return Ok(new { token });
             }
             
+            // Přidání do logů při chybě
             _context.Logs.Add(new Log { Level = "Warning", Message = $"Neúspěšný pokus o přihlášení: '{model.Username}'." });
             await _context.SaveChangesAsync();
-            
             return Unauthorized("Neplatné jméno nebo heslo.");
         }
 
         [HttpPost("logout")]
         public async Task<IActionResult> Logout([FromBody] LoginDto model)
         {
-            var user = string.IsNullOrEmpty(model.Username) ? "Neznámý uživatel" : model.Username;
-            _context.Logs.Add(new Log { Level = "Info", Message = $"Uživatel '{user}' se odhlásil." });
+            var user = string.IsNullOrEmpty(model.Username) ? "Uživatel" : model.Username;
+            _context.Logs.Add(new Log { Level = "Info", Message = $"{user} se odhlásil." });
             await _context.SaveChangesAsync();
             return Ok();
         }

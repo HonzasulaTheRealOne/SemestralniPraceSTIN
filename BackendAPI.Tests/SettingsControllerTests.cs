@@ -3,6 +3,7 @@ using Xunit;
 using BackendAPI.Controllers;
 using BackendAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Linq;
 
 namespace BackendAPI.Tests
 {
@@ -41,7 +42,7 @@ namespace BackendAPI.Tests
         }
 
         [Fact]
-        public void UpdateSettings_UpdatesExisting()
+        public void UpdateSettings_UpdatesExisting_AndLogsChange()
         {
             var context = GetInMemoryDbContext();
             context.UserSettings.Add(new UserSetting { Id = 1, BaseCurrency = "EUR" });
@@ -52,6 +53,10 @@ namespace BackendAPI.Tests
 
             Assert.IsType<OkResult>(result);
             Assert.Equal("USD", context.UserSettings.Find(1)?.BaseCurrency);
+            
+            var log = context.Logs.FirstOrDefault();
+            Assert.NotNull(log);
+            Assert.Contains("změněna z EUR na USD", log.Message);
         }
 
         [Fact]

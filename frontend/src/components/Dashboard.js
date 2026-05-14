@@ -40,9 +40,10 @@ function Dashboard({ onLogout }) {
         ratesService.getAvailableCurrencies().then(setAllCurrencies).catch(console.error);
     }, []);
 
-    useEffect(() => {
-        if (startDate && endDate) loadDashboardData();
-    }, [startDate, endDate]);
+  useEffect(() => {
+    if (startDate && endDate) loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [startDate, endDate]);
 
     const loadDashboardData = async () => {
         try {

@@ -10,6 +10,7 @@ using BackendAPI.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Moq;
+using System.Linq;
 
 namespace BackendAPI.Tests
 {
@@ -55,22 +56,31 @@ namespace BackendAPI.Tests
         public async Task GetTimeSeries_ApiFail_ReturnsFromCacheAndLogs()
         {
             var db = GetDb();
-            // 1. Předvyplníme cache jen pro 13.5.
             db.CachedRates.Add(new CachedRate { Date = "2026-05-13", BaseCurrency = "USD", Currency = "CZK", Rate = 23.5m });
             await db.SaveChangesAsync();
 
-            // 2. Připravíme padající API (pro dny, které v cache nejsou)
             var errorJson = "{\"success\":false,\"error\":{\"info\":\"Limit reached\"}}";
             var client = new HttpClient(new MockHttpMessageHandler(errorJson));
             var service = new ExchangeRateService(client, GetMockConfig());
 
-            // 3. Dotaz na DVA dny: 13.5. (vezme z cache) a 14.5. (zavolá API a selže)
             var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-13", "2026-05-14", db);
 
-            // Zkontroluje, že se vrátil výsledek z cache pro 13.5.
             Assert.Equal(23.5m, result["2026-05-13"]["CZK"]);
-            // Zkontroluje, že se selhání API pro 14.5. zapsalo do logu
-            Assert.NotEmpty(db.Logs);
+            Assert.NotEmpty(db.Logs.Where(l => l.Message.Contains("Limit reached")));
+        }
+
+        [Fact]
+        public async Task GetTimeSeries_NetworkError_CatchesExceptionAndLogs()
+        {
+            var db = GetDb();
+            // Testujeme tvrdý pád sítě (není JSON, ale HTTP chyba 500)
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
+            var service = new ExchangeRateService(client, GetMockConfig());
+
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
+
+            Assert.Empty(result);
+            Assert.NotEmpty(db.Logs.Where(l => l.Level == "Error"));
         }
 
         [Fact]
@@ -78,11 +88,24 @@ namespace BackendAPI.Tests
         {
             var service = new ExchangeRateService(null!, GetMockConfig());
             var data = new Dictionary<string, Dictionary<string, decimal>> {
-                { "d1", new Dictionary<string, decimal> { { "USD", 10m }, { "CZK", 20m } } }
+                { "d1", new Dictionary<string, decimal> { { "USD", 10m }, { "CZK", 20m } } },
+                { "d2", new Dictionary<string, decimal> { { "USD", 12m }, { "CZK", 18m } } }
             };
-            Assert.Equal("CZK", service.GetStrongestCurrency(data));
-            Assert.Equal("USD", service.GetWeakestCurrency(data));
-            Assert.Equal(15m, service.GetAverageRate(data));
+            
+            Assert.Equal("CZK", service.GetStrongestCurrency(data)); // 20 je nejvyšší
+            Assert.Equal("USD", service.GetWeakestCurrency(data));   // 10 je nejnižší
+            Assert.Equal(15m, service.GetAverageRate(data));         // (10+20+12+18) / 4 = 15
+        }
+
+        [Fact]
+        public void Calculations_EmptyData_ReturnsDefaults()
+        {
+            var service = new ExchangeRateService(null!, GetMockConfig());
+            var emptyData = new Dictionary<string, Dictionary<string, decimal>>();
+            
+            Assert.Equal("", service.GetStrongestCurrency(emptyData));
+            Assert.Equal("", service.GetWeakestCurrency(emptyData));
+            Assert.Equal(0m, service.GetAverageRate(emptyData));
         }
 
         [Fact]
@@ -96,6 +119,17 @@ namespace BackendAPI.Tests
 
             Assert.Equal(2, result.Count);
             Assert.Contains("EUR", result);
+        }
+
+        [Fact]
+        public async Task GetAvailableCurrenciesAsync_ApiFails_ThrowsException()
+        {
+            var json = "{\"success\":false,\"error\":{\"info\":\"Plan restriction\"}}";
+            var client = new HttpClient(new MockHttpMessageHandler(json));
+            var service = new ExchangeRateService(client, GetMockConfig());
+
+            var exception = await Assert.ThrowsAsync<Exception>(() => service.GetAvailableCurrenciesAsync());
+            Assert.Contains("Plan restriction", exception.Message);
         }
     }
 }

@@ -21,7 +21,7 @@ namespace BackendAPI.Tests
         }
 
         [Fact]
-        public async Task Login_Success_LogsInfo()
+        public async Task Login_Success_LogsInfoAndReturnsOk()
         {
             var mockAuth = new Mock<IAuthService>();
             mockAuth.Setup(s => s.ValidateCredentials("admin", "admin")).Returns(true);
@@ -39,7 +39,25 @@ namespace BackendAPI.Tests
         }
 
         [Fact]
-        public async Task Logout_LogsInfo()
+        public async Task Login_Fail_LogsWarningAndReturnsUnauthorized()
+        {
+            var mockAuth = new Mock<IAuthService>();
+            // Simulace špatného hesla
+            mockAuth.Setup(s => s.ValidateCredentials("admin", "wrong")).Returns(false);
+
+            var db = GetInMemoryDbContext();
+            var controller = new AuthController(mockAuth.Object, db);
+
+            var result = await controller.Login(new LoginDto { Username = "admin", Password = "wrong" });
+
+            Assert.IsType<UnauthorizedObjectResult>(result);
+            var log = db.Logs.FirstOrDefault(l => l.Message.Contains("Neúspěšný pokus"));
+            Assert.NotNull(log);
+            Assert.Equal("Warning", log.Level);
+        }
+
+        [Fact]
+        public async Task Logout_Success_LogsInfo()
         {
             var mockAuth = new Mock<IAuthService>();
             var db = GetInMemoryDbContext();
@@ -51,6 +69,21 @@ namespace BackendAPI.Tests
             var log = db.Logs.FirstOrDefault(l => l.Message.Contains("odhlásil"));
             Assert.NotNull(log);
             Assert.Equal("Info", log.Level);
+        }
+
+        [Fact]
+        public async Task Logout_EmptyUsername_LogsDefaultName()
+        {
+            var mockAuth = new Mock<IAuthService>();
+            var db = GetInMemoryDbContext();
+            var controller = new AuthController(mockAuth.Object, db);
+
+            // Simulace odhlášení bez předaného jména
+            var result = await controller.Logout(new LoginDto { Username = "" });
+
+            Assert.IsType<OkResult>(result);
+            var log = db.Logs.FirstOrDefault(l => l.Message.Contains("Uživatel se odhlásil"));
+            Assert.NotNull(log);
         }
     }
 }

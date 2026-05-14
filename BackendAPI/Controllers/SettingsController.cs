@@ -1,8 +1,7 @@
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using BackendAPI.Models;
+using System.Linq;
 
 namespace BackendAPI.Controllers
 {
@@ -19,33 +18,30 @@ namespace BackendAPI.Controllers
         }
 
         [HttpGet]
-        public IActionResult GetSettings()
+        public ActionResult<UserSetting> GetSettings()
         {
             var settings = _context.UserSettings.FirstOrDefault(s => s.Id == 1);
             if (settings == null)
             {
-                return NotFound();
+                settings = new UserSetting { Id = 1 };
+                _context.UserSettings.Add(settings);
+                _context.SaveChanges();
             }
             return Ok(settings);
         }
 
         [HttpPost]
-        public async Task<IActionResult> UpdateSettings([FromBody] UserSetting updatedSettings)
+        public ActionResult UpdateSettings(UserSetting settings)
         {
-            var settings = _context.UserSettings.FirstOrDefault(s => s.Id == 1);
-            if (settings == null)
+            var existing = _context.UserSettings.FirstOrDefault(s => s.Id == 1);
+            if (existing != null)
             {
-                updatedSettings.Id = 1;
-                _context.UserSettings.Add(updatedSettings);
+                existing.BaseCurrency = settings.BaseCurrency;
+                existing.SelectedCurrencies = settings.SelectedCurrencies;
+                existing.Language = settings.Language;
+                _context.SaveChanges();
             }
-            else
-            {
-                settings.BaseCurrency = updatedSettings.BaseCurrency;
-                settings.SelectedCurrencies = updatedSettings.SelectedCurrencies;
-            }
-
-            await _context.SaveChangesAsync();
-            return Ok(settings);
+            return Ok();
         }
     }
 }

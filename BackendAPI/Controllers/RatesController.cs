@@ -1,18 +1,16 @@
 using System;
-using System.Threading.Tasks;
 using System.Collections.Generic;
-using Microsoft.AspNetCore.Authorization;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using BackendAPI.DTOs;
-using BackendAPI.Models;
 using BackendAPI.Services;
-using System.Linq;
+using BackendAPI.Models;
+using BackendAPI.DTOs;
+using Microsoft.EntityFrameworkCore;
 
 namespace BackendAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
     public class RatesController : ControllerBase
     {
         private readonly IExchangeRateService _exchangeRateService;
@@ -24,53 +22,57 @@ namespace BackendAPI.Controllers
             _context = context;
         }
 
+        [HttpGet("analyze")]
+        public async Task<ActionResult<CurrencyResultDto>> AnalyzeRates([FromQuery] string? startDate, [FromQuery] string? endDate)
+        {
+            try
+            {
+                var settings = await _context.UserSettings.FirstOrDefaultAsync(u => u.Id == 1);
+                if (settings == null) return BadRequest("Settings not found.");
+
+                string start = startDate ?? DateTime.Now.AddDays(-7).ToString("yyyy-MM-dd");
+                string end = endDate ?? DateTime.Now.ToString("yyyy-MM-dd");
+
+                var rates = await _exchangeRateService.GetTimeSeriesRatesAsync(
+                    settings.BaseCurrency, 
+                    settings.SelectedCurrencies, 
+                    start, 
+                    end, 
+                    _context
+                );
+
+                var result = new CurrencyResultDto
+                {
+                    StrongestCurrency = _exchangeRateService.GetStrongestCurrency(rates),
+                    WeakestCurrency = _exchangeRateService.GetWeakestCurrency(rates),
+                    AverageRate = _exchangeRateService.GetAverageRate(rates),
+                    TimeSeriesRates = rates
+                };
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _context.Logs.Add(new Log { Message = $"Controller Error: {ex.Message}", Timestamp = DateTime.UtcNow });
+                await _context.SaveChangesAsync();
+                return StatusCode(500, "Internal server error");
+            }
+        }
+
         [HttpGet("currencies")]
         public async Task<ActionResult<List<string>>> GetCurrencies()
         {
-            try 
+            try
             {
                 var currencies = await _exchangeRateService.GetAvailableCurrenciesAsync();
                 return Ok(currencies);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, "Chyba při načítání seznamu měn: " + ex.Message);
+                _context.Logs.Add(new Log { Message = $"Currency List Error: {ex.Message}", Timestamp = DateTime.UtcNow });
+                await _context.SaveChangesAsync();
+                return StatusCode(500, "Internal server error");
             }
         }
-
-        [HttpGet("analyze")]
-public async Task<ActionResult<CurrencyResultDto>> AnalyzeRates([FromQuery] string? startDate, [FromQuery] string? endDate)
-{
-    try
-    {
-        var settings = _context.UserSettings.FirstOrDefault(s => s.Id == 1);
-        if (settings == null) return BadRequest("Nastavení nebylo nalezeno.");
-
-        if (string.IsNullOrEmpty(startDate)) startDate = DateTime.Now.AddDays(-10).ToString("yyyy-MM-dd");
-        if (string.IsNullOrEmpty(endDate)) endDate = DateTime.Now.ToString("yyyy-MM-dd");
-
-        var timeSeries = await _exchangeRateService.GetTimeSeriesRatesAsync(settings.BaseCurrency, settings.SelectedCurrencies, startDate, endDate);
-
-        return Ok(new CurrencyResultDto
-        {
-            TimeSeriesRates = timeSeries,
-            StrongestCurrency = _exchangeRateService.GetStrongestCurrency(timeSeries),
-            WeakestCurrency = _exchangeRateService.GetWeakestCurrency(timeSeries),
-            AverageRate = _exchangeRateService.GetAverageRate(timeSeries)
-        });
-    }
-    catch (Exception ex)
-    {
-        _context.Logs.Add(new LogEntry 
-        { 
-            Timestamp = DateTime.Now, 
-            Level = "ERROR", 
-            Message = $"API Error: {ex.Message}" 
-        });
-        await _context.SaveChangesAsync();
-
-        return StatusCode(500, "Chyba API. Log uložena do databáze.");
-    }
-}
     }
 }

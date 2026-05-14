@@ -39,7 +39,6 @@ namespace BackendAPI.Tests
         [Fact]
         public async Task GetTimeSeries_ApiSuccess_SavesToCache()
         {
-            // Simulujeme nový historical formát s "quotes"
             var json = "{\"success\":true,\"source\":\"USD\",\"quotes\":{\"USDUSD\":1.0,\"USDCZK\":23.5}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client, GetMockConfig());
@@ -56,19 +55,21 @@ namespace BackendAPI.Tests
         public async Task GetTimeSeries_ApiFail_ReturnsFromCacheAndLogs()
         {
             var db = GetDb();
-            db.CachedRates.Add(new CachedRate { Date = "2026-05-14", BaseCurrency = "USD", Currency = "CZK", Rate = 23.5m });
+            // 1. Předvyplníme cache jen pro 13.5.
+            db.CachedRates.Add(new CachedRate { Date = "2026-05-13", BaseCurrency = "USD", Currency = "CZK", Rate = 23.5m });
             await db.SaveChangesAsync();
 
-            // Simulujeme chybu z API (success: false)
+            // 2. Připravíme padající API (pro dny, které v cache nejsou)
             var errorJson = "{\"success\":false,\"error\":{\"info\":\"Limit reached\"}}";
             var client = new HttpClient(new MockHttpMessageHandler(errorJson));
             var service = new ExchangeRateService(client, GetMockConfig());
 
-            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
+            // 3. Dotaz na DVA dny: 13.5. (vezme z cache) a 14.5. (zavolá API a selže)
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-13", "2026-05-14", db);
 
-            // Musí vrátit data z cache
-            Assert.Equal(23.5m, result["2026-05-14"]["CZK"]);
-            // Musí existovat záznam v logu
+            // Zkontroluje, že se vrátil výsledek z cache pro 13.5.
+            Assert.Equal(23.5m, result["2026-05-13"]["CZK"]);
+            // Zkontroluje, že se selhání API pro 14.5. zapsalo do logu
             Assert.NotEmpty(db.Logs);
         }
 

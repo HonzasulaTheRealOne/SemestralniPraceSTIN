@@ -1,6 +1,7 @@
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using BackendAPI.DTOs;
 using BackendAPI.Services;
+using BackendAPI.Models;
 
 namespace BackendAPI.Controllers
 {
@@ -9,22 +10,46 @@ namespace BackendAPI.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        private readonly AppDbContext _context;
 
-        public AuthController(IAuthService authService)
+        public AuthController(IAuthService authService, AppDbContext context)
         {
             _authService = authService;
+            _context = context;
         }
 
         [HttpPost("login")]
-        public IActionResult Login([FromBody] LoginDto loginDto)
+        public async Task<IActionResult> Login([FromBody] LoginDto model)
         {
-            if (_authService.ValidateCredentials(loginDto.Username, loginDto.Password))
+            if (_authService.ValidateCredentials(model.Username, model.Password))
             {
-                var token = _authService.GenerateJwtToken(loginDto.Username);
-                return Ok(new { Token = token });
+                var token = _authService.GenerateJwtToken(model.Username);
+                
+                _context.Logs.Add(new Log { Level = "Info", Message = $"Uživatel '{model.Username}' se úspěšně přihlásil." });
+                await _context.SaveChangesAsync();
+                
+                return Ok(new { token });
             }
-
-            return Unauthorized("Neplatné přihlašovací údaje.");
+            
+            _context.Logs.Add(new Log { Level = "Warning", Message = $"Neúspěšný pokus o přihlášení: '{model.Username}'." });
+            await _context.SaveChangesAsync();
+            
+            return Unauthorized("Neplatné jméno nebo heslo.");
         }
+
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout([FromBody] LoginDto model)
+        {
+            var user = string.IsNullOrEmpty(model.Username) ? "Neznámý uživatel" : model.Username;
+            _context.Logs.Add(new Log { Level = "Info", Message = $"Uživatel '{user}' se odhlásil." });
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
+    }
+
+    public class LoginDto
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
 }

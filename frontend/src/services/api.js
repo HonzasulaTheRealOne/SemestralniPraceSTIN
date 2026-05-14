@@ -31,8 +31,12 @@ export const authService = {
 };
 
 export const ratesService = {
-    analyze: async () => {
-        const response = await api.get('/rates/analyze');
+    analyze: async (startDate, endDate) => {
+        let url = '/rates/analyze';
+        if (startDate && endDate) {
+            url += `?startDate=${startDate}&endDate=${endDate}`;
+        }
+        const response = await api.get(url);
         return response.data;
     }
 };

@@ -10,15 +10,13 @@ namespace BackendAPI.Tests
         public void GetStrongestCurrency_ReturnsCorrectCurrency()
         {
             var service = new ExchangeRateService(null);
-            var rates = new Dictionary<string, decimal>
+            var timeSeries = new Dictionary<string, Dictionary<string, decimal>>
             {
-                { "USD", 23.5m },
-                { "EUR", 25.0m },
-                { "GBP", 29.0m }
+                { "2026-05-01", new Dictionary<string, decimal> { { "USD", 23.5m }, { "EUR", 25.0m } } },
+                { "2026-05-02", new Dictionary<string, decimal> { { "USD", 24.0m }, { "GBP", 29.0m } } }
             };
 
-            var result = service.GetStrongestCurrency(rates);
-
+            var result = service.GetStrongestCurrency(timeSeries);
             Assert.Equal("GBP", result); 
         }
 
@@ -26,14 +24,13 @@ namespace BackendAPI.Tests
         public void GetAverageRate_CalculatesCorrectly()
         {
             var service = new ExchangeRateService(null);
-            var rates = new Dictionary<string, decimal>
+            var timeSeries = new Dictionary<string, Dictionary<string, decimal>>
             {
-                { "USD", 20.0m },
-                { "EUR", 25.0m }
+                { "2026-05-01", new Dictionary<string, decimal> { { "USD", 20.0m } } },
+                { "2026-05-02", new Dictionary<string, decimal> { { "EUR", 25.0m } } }
             };
 
-            var result = service.GetAverageRate(rates);
-
+            var result = service.GetAverageRate(timeSeries);
             Assert.Equal(22.5m, result);
         }
     }

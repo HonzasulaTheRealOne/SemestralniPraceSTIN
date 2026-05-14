@@ -26,16 +26,35 @@ namespace BackendAPI.Services
         public ExchangeRateService(HttpClient httpClient) => _httpClient = httpClient;
 
         public async Task<List<string>> GetAvailableCurrenciesAsync()
+{
+    try
+    {
+        var response = await _httpClient.GetAsync($"{ApiBase}/list");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        
+        using var doc = JsonDocument.Parse(content);
+        
+        if (doc.RootElement.TryGetProperty("currencies", out var currenciesElement))
         {
-            var response = await _httpClient.GetAsync($"{ApiBase}/list");
-            response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(content);
             var currencies = new List<string>();
-            foreach (var prop in doc.RootElement.GetProperty("currencies").EnumerateObject())
+            foreach (var prop in currenciesElement.EnumerateObject())
+            {
                 currencies.Add(prop.Name);
+            }
             return currencies;
         }
+        else
+        {
+
+            throw new Exception($"API nevrátilo 'currencies'. Obsah: {content}");
+        }
+    }
+    catch (Exception)
+    {
+        return new List<string> { "USD", "EUR", "CZK", "GBP", "CHF", "PLN" };
+    }
+}
 
         public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurr, string symbols, string start, string end, AppDbContext db)
         {

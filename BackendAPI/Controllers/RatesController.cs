@@ -11,7 +11,7 @@ namespace BackendAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize] // Ochrání endpoint tak, že sem může jen přihlášený uživatel s tokenem
+    [Authorize]
     public class RatesController : ControllerBase
     {
         private readonly IExchangeRateService _exchangeRateService;

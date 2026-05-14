@@ -26,7 +26,6 @@ namespace BackendAPI.Services
 
         public async Task<Dictionary<string, decimal>> GetRatesAsync(string baseCurrency, string symbols)
         {
-            // Volání externího API podle dokumentu DSP
             var url = $"https://api.exchangerate.host/latest?base={baseCurrency}&symbols={symbols}";
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
@@ -43,7 +42,6 @@ namespace BackendAPI.Services
             var ratesElement = document.RootElement.GetProperty("rates");
             var rates = new Dictionary<string, decimal>();
 
-            // Rozparsování JSON odpovědi
             foreach (var property in ratesElement.EnumerateObject())
             {
                 rates.Add(property.Name, property.Value.GetDecimal());
@@ -69,7 +67,6 @@ namespace BackendAPI.Services
         public decimal GetAverageRate(Dictionary<string, decimal> rates)
         {
             if (rates == null || rates.Count == 0) return 0;
-            // Aritmetický průměr, chybějící data se ignorují (pokud by chyběla, nenačtou se do Dictionary)
             return rates.Values.Average();
         }
     }

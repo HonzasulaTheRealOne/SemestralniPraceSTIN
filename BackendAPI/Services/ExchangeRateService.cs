@@ -4,83 +4,119 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using BackendAPI.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace BackendAPI.Services
 {
     public interface IExchangeRateService
     {
-        Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate);
         Task<List<string>> GetAvailableCurrenciesAsync();
-        string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
-        string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
-        decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> timeSeries);
+        Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurr, string symbols, string start, string end, AppDbContext db);
+        string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> data);
+        string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> data);
+        decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> data);
     }
 
     public class ExchangeRateService : IExchangeRateService
     {
         private readonly HttpClient _httpClient;
+        private const string ApiBase = "https://api.exchangerate.host";
 
-        public ExchangeRateService(HttpClient httpClient)
-        {
-            _httpClient = httpClient;
-        }
+        public ExchangeRateService(HttpClient httpClient) => _httpClient = httpClient;
 
         public async Task<List<string>> GetAvailableCurrenciesAsync()
         {
-            var url = "https://api.frankfurter.app/currencies";
-            var response = await _httpClient.GetAsync(url);
+            var response = await _httpClient.GetAsync($"{ApiBase}/list");
             response.EnsureSuccessStatusCode();
-
-            var jsonString = await response.Content.ReadAsStringAsync();
-            using var document = JsonDocument.Parse(jsonString);
-            
-            return document.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+            var content = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(content);
+            var currencies = new List<string>();
+            foreach (var prop in doc.RootElement.GetProperty("currencies").EnumerateObject())
+                currencies.Add(prop.Name);
+            return currencies;
         }
 
-        public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate)
+        public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurr, string symbols, string start, string end, AppDbContext db)
         {
-            var url = $"https://api.frankfurter.app/{startDate}..{endDate}?from={baseCurrency}&to={symbols}";
-            var response = await _httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-
-            var jsonString = await response.Content.ReadAsStringAsync();
-            using var document = JsonDocument.Parse(jsonString);
-
-            var ratesElement = document.RootElement.GetProperty("rates");
-            var result = new Dictionary<string, Dictionary<string, decimal>>();
-
-            foreach (var dateProperty in ratesElement.EnumerateObject())
+            try
             {
-                var dateRates = new Dictionary<string, decimal>();
-                foreach (var currencyProperty in dateProperty.Value.EnumerateObject())
-                {
-                    dateRates.Add(currencyProperty.Name, currencyProperty.Value.GetDecimal());
-                }
-                result.Add(dateProperty.Name, dateRates);
-            }
+                var url = $"{ApiBase}/timeseries?base={baseCurr}&symbols={symbols}&start_date={start}&end_date={end}";
+                var response = await _httpClient.GetAsync(url);
 
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    var data = JsonDocument.Parse(content);
+                    var result = ParseRates(data);
+
+                    await SaveRatesToCache(result, baseCurr, db);
+                    return result;
+                }
+                throw new Exception("API service unavailable.");
+            }
+            catch (Exception ex)
+            {
+                db.Logs.Add(new Log { Message = $"API Error: {ex.Message}", Timestamp = DateTime.UtcNow });
+                await db.SaveChangesAsync();
+
+                return await GetRatesFromCache(baseCurr, symbols.Split(','), db);
+            }
+        }
+
+        private async Task SaveRatesToCache(Dictionary<string, Dictionary<string, decimal>> data, string baseCurr, AppDbContext db)
+        {
+            foreach (var dateEntry in data)
+            {
+                foreach (var rateEntry in dateEntry.Value)
+                {
+                    var exists = await db.CachedRates.AnyAsync(r => r.Date == dateEntry.Key && r.Currency == rateEntry.Key && r.BaseCurrency == baseCurr);
+                    if (!exists)
+                    {
+                        db.CachedRates.Add(new CachedRate { Date = dateEntry.Key, BaseCurrency = baseCurr, Currency = rateEntry.Key, Rate = rateEntry.Value });
+                    }
+                }
+            }
+            await db.SaveChangesAsync();
+        }
+
+        private async Task<Dictionary<string, Dictionary<string, decimal>>> GetRatesFromCache(string baseCurr, string[] symbols, AppDbContext db)
+        {
+            var cached = await db.CachedRates
+                .Where(r => r.BaseCurrency == baseCurr && symbols.Contains(r.Currency))
+                .ToListAsync();
+
+            return cached.GroupBy(r => r.Date).ToDictionary(
+                g => g.Key,
+                g => g.ToDictionary(r => r.Currency, r => r.Rate)
+            );
+        }
+
+        private Dictionary<string, Dictionary<string, decimal>> ParseRates(JsonDocument data)
+        {
+            var result = new Dictionary<string, Dictionary<string, decimal>>();
+            if (!data.RootElement.TryGetProperty("rates", out var ratesProp)) return result;
+
+            foreach (var dateProp in ratesProp.EnumerateObject())
+            {
+                var dayRates = new Dictionary<string, decimal>();
+                foreach (var currProp in dateProp.Value.EnumerateObject())
+                    dayRates.Add(currProp.Name, currProp.Value.GetDecimal());
+                result.Add(dateProp.Name, dayRates);
+            }
             return result;
         }
 
-        public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries)
-        {
-            if (timeSeries == null || !timeSeries.Any()) return string.Empty;
-            var allRates = timeSeries.SelectMany(d => d.Value);
-            return allRates.OrderByDescending(r => r.Value).First().Key;
-        }
+        public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> data) =>
+            data.SelectMany(d => d.Value).OrderByDescending(v => v.Value).FirstOrDefault().Key ?? "";
 
-        public string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries)
-        {
-            if (timeSeries == null || !timeSeries.Any()) return string.Empty;
-            var allRates = timeSeries.SelectMany(d => d.Value);
-            return allRates.OrderBy(r => r.Value).First().Key;
-        }
+        public string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> data) =>
+            data.SelectMany(d => d.Value).OrderBy(v => v.Value).FirstOrDefault().Key ?? "";
 
-        public decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> timeSeries)
+        public decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> data)
         {
-            if (timeSeries == null || !timeSeries.Any()) return 0;
-            var allRates = timeSeries.SelectMany(d => d.Value);
-            return allRates.Average(r => r.Value);
+            var allValues = data.SelectMany(d => d.Value.Values).ToList();
+            return allValues.Any() ? allValues.Average() : 0;
         }
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -25,8 +26,10 @@ builder.Services.AddCors(options =>
 });
 
 builder.Services.AddControllers();
+var secretKeyString = builder.Configuration["JwtSettings:SecretKey"] 
+    ?? throw new InvalidOperationException("Kritická chyba: Chybí JWT klíč v konfiguraci!");
+var secretKey = Encoding.ASCII.GetBytes(secretKeyString);
 
-var secretKey = Encoding.ASCII.GetBytes("TajnyKlicProSemestralniPraciSTIN2026_MusiBytDostatecneDlouhy");
 builder.Services.AddAuthentication(x =>
 {
     x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;

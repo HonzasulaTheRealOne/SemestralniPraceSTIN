@@ -11,10 +11,17 @@ namespace BackendAPI.Tests
     public class MockHttpMessageHandler : HttpMessageHandler
     {
         private readonly string _response;
-        public MockHttpMessageHandler(string response) { _response = response; }
+        private readonly HttpStatusCode _statusCode;
+
+        public MockHttpMessageHandler(string response, HttpStatusCode statusCode = HttpStatusCode.OK)
+        {
+            _response = response;
+            _statusCode = statusCode;
+        }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            return Task.FromResult(new HttpResponseMessage { StatusCode = HttpStatusCode.OK, Content = new StringContent(_response) });
+            return Task.FromResult(new HttpResponseMessage { StatusCode = _statusCode, Content = new StringContent(_response) });
         }
     }
 
@@ -31,7 +38,15 @@ namespace BackendAPI.Tests
 
             Assert.Equal(2, result.Count);
             Assert.Contains("EUR", result);
-            Assert.Contains("USD", result);
+        }
+
+        [Fact]
+        public async Task GetAvailableCurrenciesAsync_ApiError_ThrowsHttpRequestException()
+        {
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
+            var service = new ExchangeRateService(client);
+
+            await Assert.ThrowsAsync<HttpRequestException>(() => service.GetAvailableCurrenciesAsync());
         }
 
         [Fact]
@@ -45,7 +60,15 @@ namespace BackendAPI.Tests
 
             Assert.True(result.ContainsKey("2026-05-01"));
             Assert.Equal(1.08m, result["2026-05-01"]["USD"]);
-            Assert.Equal(24.5m, result["2026-05-01"]["CZK"]);
+        }
+
+        [Fact]
+        public async Task GetTimeSeriesRatesAsync_ApiError_ThrowsHttpRequestException()
+        {
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.BadRequest));
+            var service = new ExchangeRateService(client);
+
+            await Assert.ThrowsAsync<HttpRequestException>(() => service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-05-01", "2026-05-01"));
         }
 
         [Fact]

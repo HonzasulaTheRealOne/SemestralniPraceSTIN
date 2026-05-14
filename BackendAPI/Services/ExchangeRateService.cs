@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using BackendAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace BackendAPI.Services
 {
@@ -21,61 +22,68 @@ namespace BackendAPI.Services
     public class ExchangeRateService : IExchangeRateService
     {
         private readonly HttpClient _httpClient;
-        private const string ApiBase = "https://api.exchangerate.host";
+        private readonly string _apiKey;
+        // U free plánů exchangerate často blokuje HTTPS, proto raději http://
+        private const string ApiBase = "http://api.exchangerate.host"; 
 
-        public ExchangeRateService(HttpClient httpClient) => _httpClient = httpClient;
+        public ExchangeRateService(HttpClient httpClient, IConfiguration config)
+        {
+            _httpClient = httpClient;
+            // Přečteme klíč z konfigurace, jako zálohu použijeme ten tvůj
+            _apiKey = config["ExchangeRateApiKey"] ?? "9df2dbeafc600550c8b34becd44556b2";
+        }
 
         public async Task<List<string>> GetAvailableCurrenciesAsync()
-{
-    try
-    {
-        var response = await _httpClient.GetAsync($"{ApiBase}/list");
-        response.EnsureSuccessStatusCode();
-        var content = await response.Content.ReadAsStringAsync();
-        
-        using var doc = JsonDocument.Parse(content);
-        
-        if (doc.RootElement.TryGetProperty("currencies", out var currenciesElement))
         {
-            var currencies = new List<string>();
-            foreach (var prop in currenciesElement.EnumerateObject())
+            try
             {
-                currencies.Add(prop.Name);
+                // PŘIDÁNO: ?access_key=
+                var response = await _httpClient.GetAsync($"{ApiBase}/list?access_key={_apiKey}");
+                response.EnsureSuccessStatusCode();
+                var content = await response.Content.ReadAsStringAsync();
+                
+                using var doc = JsonDocument.Parse(content);
+                // Bezpečné parsování - pokud API pošle chybu o limitech, nespadneme
+                if (doc.RootElement.TryGetProperty("currencies", out var currenciesElement))
+                {
+                    var currencies = new List<string>();
+                    foreach (var prop in currenciesElement.EnumerateObject()) currencies.Add(prop.Name);
+                    return currencies;
+                }
+                throw new Exception($"API nevrátilo 'currencies'. Obsah: {content}");
             }
-            return currencies;
+            catch (Exception)
+            {
+                // FALLBACK: Pokud API selže, vrátíme aspoň toto, aby UI nezamrzlo
+                return new List<string> { "USD", "EUR", "CZK", "GBP", "CHF", "PLN" };
+            }
         }
-        else
-        {
-
-            throw new Exception($"API nevrátilo 'currencies'. Obsah: {content}");
-        }
-    }
-    catch (Exception)
-    {
-        return new List<string> { "USD", "EUR", "CZK", "GBP", "CHF", "PLN" };
-    }
-}
 
         public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurr, string symbols, string start, string end, AppDbContext db)
         {
             try
             {
-                var url = $"{ApiBase}/timeseries?base={baseCurr}&symbols={symbols}&start_date={start}&end_date={end}";
+                // PŘIDÁNO: ?access_key=
+                var url = $"{ApiBase}/timeseries?access_key={_apiKey}&base={baseCurr}&symbols={symbols}&start_date={start}&end_date={end}";
                 var response = await _httpClient.GetAsync(url);
+                var content = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var content = await response.Content.ReadAsStringAsync();
-                    var data = JsonDocument.Parse(content);
-                    var result = ParseRates(data);
-                    await SaveRatesToCache(result, baseCurr, db);
-                    return result;
+                    using var data = JsonDocument.Parse(content);
+                    if (data.RootElement.TryGetProperty("rates", out var ratesProp))
+                    {
+                        var result = ParseRates(data);
+                        await SaveRatesToCache(result, baseCurr, db);
+                        return result;
+                    }
+                    throw new Exception($"API nevrátilo 'rates'. Obsah: {content}");
                 }
-                throw new Exception("API Error");
+                throw new Exception($"API Error {response.StatusCode}. Obsah: {content}");
             }
             catch (Exception ex)
             {
-                db.Logs.Add(new Log { Message = ex.Message });
+                db.Logs.Add(new Log { Level = "Error", Message = $"API Error: {ex.Message}" });
                 await db.SaveChangesAsync();
                 return await GetRatesFromCache(baseCurr, symbols.Split(','), db);
             }

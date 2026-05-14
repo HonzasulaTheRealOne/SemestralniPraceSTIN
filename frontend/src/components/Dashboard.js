@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ratesService, settingsService, authService } from '../services/api';
-import { translations } from '../i18n/translations'; // Import z vlastního souboru
+import { translations } from '../i18n/translations';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -21,8 +21,8 @@ function Dashboard({ onLogout }) {
     const [allCurrencies, setAllCurrencies] = useState([]);
     const [loading, setLoading] = useState(true);
     const [lang, setLang] = useState('CZ');
+    const [error, setError] = useState('');
 
-    // Dynamický výběr jazyka
     const t = translations[lang];
 
     const [isEditing, setIsEditing] = useState(false);
@@ -45,20 +45,27 @@ function Dashboard({ onLogout }) {
     }, [startDate, endDate]);
 
     const loadDashboardData = async () => {
-    try {
-        setLoading(true);
-        const userSettings = await settingsService.getSettings();
-        setSettings(userSettings);
-        setEditBase(userSettings.baseCurrency);
-        setEditSelected(userSettings.selectedCurrencies);
-        setLang(userSettings.language || 'CZ');
+        try {
+            setLoading(true);
+            setError('');
+            const userSettings = await settingsService.getSettings();
+            setSettings(userSettings);
+            setEditBase(userSettings.baseCurrency);
+            setEditSelected(userSettings.selectedCurrencies);
+            setLang(userSettings.language || 'CZ');
 
-        const analysisData = await ratesService.analyze(startDate, endDate);
-        setData(analysisData);
-    } catch (err) { console.error(err); } finally { setLoading(false); }
-};
+            const analysisData = await ratesService.analyze(startDate, endDate);
+            setData(analysisData);
+        } catch (err) { 
+            console.error(err);
+            setError(lang === 'CZ' ? 'Chyba při načítání dat z API.' : 'Error fetching data from API.');
+        } finally { 
+            setLoading(false); 
+        }
+    };
 
-            const handleSaveSettings = async () => {
+    const handleSaveSettings = async () => {
+        try {
             await settingsService.updateSettings({ 
                 id: 1, 
                 baseCurrency: editBase, 
@@ -67,7 +74,10 @@ function Dashboard({ onLogout }) {
             });
             setIsEditing(false);
             loadDashboardData();
-        };
+        } catch (err) {
+            setError(lang === 'CZ' ? 'Chyba při ukládání nastavení.' : 'Error saving settings.');
+        }
+    };
 
     const toggleCurrency = (currency) => {
         let current = editSelected ? editSelected.split(',') : [];
@@ -99,6 +109,16 @@ function Dashboard({ onLogout }) {
                 <h2>{t.title}</h2>
                 <button onClick={() => { authService.logout(); onLogout(); }} style={{backgroundColor:'#dc3545', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer'}}>{t.logout}</button>
             </div>
+
+            {error && (
+                <div style={{ padding: '20px', backgroundColor: '#fff3f3', border: '1px solid #f5c6cb', borderRadius: '8px', textAlign: 'center', margin: '20px 0' }}>
+                    <h4 style={{ color: '#721c24', margin: '0 0 10px 0' }}>{lang === 'CZ' ? 'Chyba' : 'Error'}</h4>
+                    <p style={{ fontSize: '14px', color: '#721c24' }}>{error}</p>
+                    <button onClick={loadDashboardData} style={{ padding: '8px 20px', cursor: 'pointer', backgroundColor: '#f5c6cb', border: '1px solid #d15a5a', borderRadius: '4px' }}>
+                        {lang === 'CZ' ? 'Zkusit znovu' : 'Retry'}
+                    </button>
+                </div>
+            )}
 
             <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
                 <div style={{ flex: 1, padding: '15px', backgroundColor: '#f8f9fa', border: '1px solid #ddd', borderRadius: '8px' }}>

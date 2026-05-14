@@ -38,7 +38,7 @@ namespace BackendAPI.Tests
         }
 
         [Fact]
-        public async Task GetTimeSeries_ApiSuccess_SavesToCache()
+        public async Task GetTimeSeries_ApiSuccess_QuotesFormat_SavesToCache()
         {
             var json = "{\"success\":true,\"source\":\"USD\",\"quotes\":{\"USDUSD\":1.0,\"USDCZK\":23.5}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
@@ -50,6 +50,52 @@ namespace BackendAPI.Tests
             Assert.Single(result);
             Assert.Equal(23.5m, result["2026-05-14"]["CZK"]);
             Assert.True(await db.CachedRates.AnyAsync(r => r.Currency == "CZK"));
+        }
+
+        [Fact]
+        public async Task GetTimeSeries_ApiSuccess_RatesFormat_MissingSource_CalculatesCorrectly()
+        {
+            // Simulace alternativní odpovědi API (rates místo quotes, chybí source -> fallback na USD)
+            var json = "{\"success\":true,\"rates\":{\"CZK\":23.5, \"EUR\":0.9}}";
+            var client = new HttpClient(new MockHttpMessageHandler(json));
+            var service = new ExchangeRateService(client, GetMockConfig());
+            var db = GetDb();
+
+            var result = await service.GetTimeSeriesRatesAsync("EUR", "CZK", "2026-05-14", "2026-05-14", db);
+
+            Assert.Single(result);
+            // 23.5 / 0.9 = 26.1111
+            Assert.Equal(26.1111m, result["2026-05-14"]["CZK"]);
+        }
+
+        [Fact]
+        public async Task GetTimeSeries_AllDaysInCache_SkipsApi()
+        {
+            var db = GetDb();
+            db.CachedRates.Add(new CachedRate { Date = "2026-05-14", BaseCurrency = "USD", Currency = "CZK", Rate = 23.5m });
+            await db.SaveChangesAsync();
+
+            // Pokud by to zkusilo zavolat API, spadne to na 500
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
+            var service = new ExchangeRateService(client, GetMockConfig());
+
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
+
+            Assert.Single(result);
+            Assert.Equal(23.5m, result["2026-05-14"]["CZK"]);
+        }
+
+        [Fact]
+        public async Task GetTimeSeries_ApiMissingRatesAndQuotes_SkipsDay()
+        {
+            var db = GetDb();
+            var json = "{\"success\":true,\"source\":\"USD\"}"; // Chybí data
+            var client = new HttpClient(new MockHttpMessageHandler(json));
+            var service = new ExchangeRateService(client, GetMockConfig());
+
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
+
+            Assert.Empty(result);
         }
 
         [Fact]
@@ -73,7 +119,6 @@ namespace BackendAPI.Tests
         public async Task GetTimeSeries_NetworkError_CatchesExceptionAndLogs()
         {
             var db = GetDb();
-            // Testujeme tvrdý pád sítě (není JSON, ale HTTP chyba 500)
             var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
             var service = new ExchangeRateService(client, GetMockConfig());
 
@@ -92,9 +137,9 @@ namespace BackendAPI.Tests
                 { "d2", new Dictionary<string, decimal> { { "USD", 12m }, { "CZK", 18m } } }
             };
             
-            Assert.Equal("CZK", service.GetStrongestCurrency(data)); // 20 je nejvyšší
-            Assert.Equal("USD", service.GetWeakestCurrency(data));   // 10 je nejnižší
-            Assert.Equal(15m, service.GetAverageRate(data));         // (10+20+12+18) / 4 = 15
+            Assert.Equal("CZK", service.GetStrongestCurrency(data)); 
+            Assert.Equal("USD", service.GetWeakestCurrency(data));   
+            Assert.Equal(15m, service.GetAverageRate(data));         
         }
 
         [Fact]
@@ -130,6 +175,17 @@ namespace BackendAPI.Tests
 
             var exception = await Assert.ThrowsAsync<Exception>(() => service.GetAvailableCurrenciesAsync());
             Assert.Contains("Plan restriction", exception.Message);
+        }
+
+        [Fact]
+        public async Task GetAvailableCurrenciesAsync_MissingCurrencies_ThrowsException()
+        {
+            var json = "{\"success\":true,\"other\":\"data\"}";
+            var client = new HttpClient(new MockHttpMessageHandler(json));
+            var service = new ExchangeRateService(client, GetMockConfig());
+
+            var exception = await Assert.ThrowsAsync<Exception>(() => service.GetAvailableCurrenciesAsync());
+            Assert.Contains("Neočekávaný formát", exception.Message);
         }
     }
 }

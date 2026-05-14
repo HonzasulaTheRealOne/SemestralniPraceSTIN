@@ -49,7 +49,6 @@ namespace BackendAPI.Tests
             db.SaveChanges();
 
             var controller = new RatesController(mock.Object, db);
-            // Předáme null datumy, controller si je musí dopočítat
             var result = await controller.AnalyzeRates(null, null);
 
             Assert.IsType<OkObjectResult>(result.Result);

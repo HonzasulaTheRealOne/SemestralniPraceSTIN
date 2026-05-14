@@ -42,7 +42,6 @@ namespace BackendAPI.Tests
         public async Task Login_Fail_LogsWarningAndReturnsUnauthorized()
         {
             var mockAuth = new Mock<IAuthService>();
-            // Simulace špatného hesla
             mockAuth.Setup(s => s.ValidateCredentials("admin", "wrong")).Returns(false);
 
             var db = GetInMemoryDbContext();
@@ -78,7 +77,6 @@ namespace BackendAPI.Tests
             var db = GetInMemoryDbContext();
             var controller = new AuthController(mockAuth.Object, db);
 
-            // Simulace odhlášení bez předaného jména
             var result = await controller.Logout(new LoginDto { Username = "" });
 
             Assert.IsType<OkResult>(result);

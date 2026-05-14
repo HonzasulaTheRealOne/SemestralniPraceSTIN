@@ -32,39 +32,43 @@ namespace BackendAPI.Tests
 
         private IConfiguration GetMockConfig() {
             var mockConfig = new Mock<IConfiguration>();
-            mockConfig.Setup(c => c["ExchangeRateApiKey"]).Returns("test_key");
+            mockConfig.Setup(c => c["ExchangeRateApiKey"]).Returns("9df2dbeafc600550c8b34becd44556b2");
             return mockConfig.Object;
         }
 
         [Fact]
         public async Task GetTimeSeries_ApiSuccess_SavesToCache()
         {
-            // ÚPRAVA PRO NOVEJ KÓD: Simulujeme nový formát s "quotes" a "success" místo "rates"
-            var json = "{\"success\":true,\"source\":\"USD\",\"quotes\":{\"USDUSD\":1.1}}";
+            // Simulujeme nový historical formát s "quotes"
+            var json = "{\"success\":true,\"source\":\"USD\",\"quotes\":{\"USDUSD\":1.0,\"USDCZK\":23.5}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client, GetMockConfig());
             var db = GetDb();
 
-            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-01-01", "2026-01-01", db);
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
 
             Assert.Single(result);
-            Assert.Equal(1.1m, result["2026-01-01"]["USD"]);
-            Assert.True(await db.CachedRates.AnyAsync(r => r.Currency == "USD"));
+            Assert.Equal(23.5m, result["2026-05-14"]["CZK"]);
+            Assert.True(await db.CachedRates.AnyAsync(r => r.Currency == "CZK"));
         }
 
         [Fact]
         public async Task GetTimeSeries_ApiFail_ReturnsFromCacheAndLogs()
         {
             var db = GetDb();
-            db.CachedRates.Add(new CachedRate { Date = "2026-01-01", BaseCurrency = "EUR", Currency = "USD", Rate = 1.2m });
+            db.CachedRates.Add(new CachedRate { Date = "2026-05-14", BaseCurrency = "USD", Currency = "CZK", Rate = 23.5m });
             await db.SaveChangesAsync();
 
-            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
+            // Simulujeme chybu z API (success: false)
+            var errorJson = "{\"success\":false,\"error\":{\"info\":\"Limit reached\"}}";
+            var client = new HttpClient(new MockHttpMessageHandler(errorJson));
             var service = new ExchangeRateService(client, GetMockConfig());
 
-            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-01-01", "2026-01-01", db);
+            var result = await service.GetTimeSeriesRatesAsync("USD", "CZK", "2026-05-14", "2026-05-14", db);
 
-            Assert.Equal(1.2m, result["2026-01-01"]["USD"]);
+            // Musí vrátit data z cache
+            Assert.Equal(23.5m, result["2026-05-14"]["CZK"]);
+            // Musí existovat záznam v logu
             Assert.NotEmpty(db.Logs);
         }
 
@@ -83,7 +87,6 @@ namespace BackendAPI.Tests
         [Fact]
         public async Task GetAvailableCurrenciesAsync_Success_ReturnsList()
         {
-            // ÚPRAVA PRO NOVEJ KÓD: Zahrnuto "success":true
             var json = "{\"success\":true,\"currencies\":{\"EUR\":\"Euro\",\"USD\":\"Dollar\"}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client, GetMockConfig());

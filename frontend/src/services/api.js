@@ -27,6 +27,12 @@ export const authService = {
     },
     logout: () => {
         localStorage.removeItem('token');
+    },
+    isAuthenticated: () => {
+        return !!localStorage.getItem('token');
+    },
+    getToken: () => {
+        return localStorage.getItem('token');
     }
 };
 

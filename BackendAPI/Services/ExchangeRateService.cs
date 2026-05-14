@@ -28,7 +28,7 @@ namespace BackendAPI.Services
         public ExchangeRateService(HttpClient httpClient, IConfiguration config)
         {
             _httpClient = httpClient;
-            _apiKey = config["ExchangeRateApiKey"] ?? "9df2dbeafc600550c8b34becd44556b2";
+            _apiKey = config["ExchangeRateApiKey"] ?? "7983b9057aad82a308abc5a9f2f7d0a8";
         }
 
         public async Task<List<string>> GetAvailableCurrenciesAsync()
@@ -59,12 +59,10 @@ namespace BackendAPI.Services
             var endDate = DateTime.Parse(end);
             var requestedSymbols = symbols.Split(',').Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 
-            // Slučka přes dny - obchází zablokovaný endpoint /timeseries
             for (var date = startDate; date <= endDate; date = date.AddDays(1))
             {
                 string dateStr = date.ToString("yyyy-MM-dd");
                 
-                // 1. Zkontrolujeme Cache
                 var cachedForDay = await db.CachedRates.Where(r => r.BaseCurrency == baseCurr && r.Date == dateStr && requestedSymbols.Contains(r.Currency)).ToListAsync();
 
                 if (cachedForDay.Count >= requestedSymbols.Count && requestedSymbols.Count > 0)
@@ -73,7 +71,6 @@ namespace BackendAPI.Services
                     continue;
                 }
 
-                // 2. Pokud není v Cache, stáhneme /historical
                 try
                 {
                     var symbolsWithBase = $"{symbols},{baseCurr}";
@@ -91,7 +88,6 @@ namespace BackendAPI.Services
                         continue;
                     }
 
-                    // APILayer vrací u Free plánu "quotes" místo "rates" a dává tam prefixy např. "USDEUR"
                     JsonElement ratesObj = data.RootElement.TryGetProperty("rates", out var r) ? r : 
                                            data.RootElement.TryGetProperty("quotes", out var q) ? q : default;
 
@@ -108,7 +104,6 @@ namespace BackendAPI.Services
                         rawRates.Add(currencyCode, prop.Value.GetDecimal());
                     }
 
-                    // Matematický přepočet z fixní měny na uživatelovu měnu (obchází zákaz změny BASE na free tarifu)
                     decimal baseRateToSource = baseCurr == sourceCurrency ? 1m : (rawRates.ContainsKey(baseCurr) ? rawRates[baseCurr] : 1m);
 
                     foreach (var symbol in requestedSymbols)

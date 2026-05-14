@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ratesService, settingsService, authService } from '../services/api';
 import { translations } from '../i18n/translations';
+import LogsViewer from './LogsViewer'; // IMPORT NOVÉ KOMPONENTY
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -22,6 +23,9 @@ function Dashboard({ onLogout }) {
     const [loading, setLoading] = useState(true);
     const [lang, setLang] = useState('CZ');
     const [error, setError] = useState('');
+    
+    // STAV PRO PŘEPÍNÁNÍ POHLEDU NA LOGY
+    const [showLogs, setShowLogs] = useState(false);
 
     const t = translations[lang];
 
@@ -40,10 +44,10 @@ function Dashboard({ onLogout }) {
         ratesService.getAvailableCurrencies().then(setAllCurrencies).catch(console.error);
     }, []);
 
-  useEffect(() => {
-    if (startDate && endDate) loadDashboardData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [startDate, endDate]);
+    useEffect(() => {
+        if (startDate && endDate) loadDashboardData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startDate, endDate]);
 
     const loadDashboardData = async () => {
         try {
@@ -102,13 +106,22 @@ function Dashboard({ onLogout }) {
         };
     };
 
+    if (showLogs) {
+        return <LogsViewer onBack={() => setShowLogs(false)} lang={lang} />;
+    }
+
     if (loading && !data) return <div style={{textAlign:'center', marginTop:'50px'}}>...</div>;
 
     return (
         <div style={{ maxWidth: '900px', margin: '20px auto', fontFamily: 'Arial, sans-serif', padding: '0 20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
                 <h2>{t.title}</h2>
-                <button onClick={() => { authService.logout(); onLogout(); }} style={{backgroundColor:'#dc3545', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer'}}>{t.logout}</button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={() => setShowLogs(true)} style={{backgroundColor:'#17a2b8', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer'}}>
+                        {lang === 'CZ' ? 'Zobrazit Logy' : 'View Logs'}
+                    </button>
+                    <button onClick={() => { authService.logout(); onLogout(); }} style={{backgroundColor:'#dc3545', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer'}}>{t.logout}</button>
+                </div>
             </div>
 
             {error && (
@@ -170,7 +183,6 @@ function Dashboard({ onLogout }) {
                 </div>
             </div>
 
-            {/* OPRAVENÁ ČÁST PRO GRAF: Přidána pevná výška 400px a maintainAspectRatio: false */}
             <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'white', height: '400px', position: 'relative' }}>
                 <Line 
                     data={generateChartData()} 

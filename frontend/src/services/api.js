@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'https://stin-backend-jan-frantisek-sula.onrender.com/api'; 
+const API_URL = process.env.REACT_APP_API_URL || 'https://stin-backend-jan-frantisek-sula.onrender.com/api';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -57,6 +57,14 @@ export const settingsService = {
     },
     updateSettings: async (settings) => {
         const response = await api.post('/settings', settings);
+        return response.data;
+    }
+};
+
+// NOVÁ SLUŽBA PRO LOGY
+export const logsService = {
+    getLogs: async () => {
+        const response = await api.get('/logs');
         return response.data;
     }
 };

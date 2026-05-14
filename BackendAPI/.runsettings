@@ -5,7 +5,7 @@
       <DataCollector friendlyName="XPlat code coverage">
         <Configuration>
           <Format>cobertura</Format>
-          <Exclude>[*]BackendAPI.Migrations.*,[*]BackendAPI.Models.*,[*]BackendAPI.DTOs.*,[*]BackendAPI.Controllers.*,Program</Exclude>
+          <Exclude>[*]BackendAPI.Migrations.*,[*]BackendAPI.Models.*,[*]BackendAPI.DTOs.*,Program</Exclude>
         </Configuration>
       </DataCollector>
     </DataCollectors>

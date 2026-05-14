@@ -31,8 +31,16 @@ export const authService = {
 };
 
 export const ratesService = {
-    analyze: async () => {
-        const response = await api.get('/rates/analyze');
+    getAvailableCurrencies: async () => {
+        const response = await api.get('/rates/currencies');
+        return response.data;
+    },
+    analyze: async (startDate, endDate) => {
+        let url = '/rates/analyze';
+        if (startDate && endDate) {
+            url += `?startDate=${startDate}&endDate=${endDate}`;
+        }
+        const response = await api.get(url);
         return response.data;
     }
 };

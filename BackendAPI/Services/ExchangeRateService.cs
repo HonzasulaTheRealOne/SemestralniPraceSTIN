@@ -9,10 +9,11 @@ namespace BackendAPI.Services
 {
     public interface IExchangeRateService
     {
-        Task<Dictionary<string, decimal>> GetRatesAsync(string baseCurrency, string symbols);
-        string GetStrongestCurrency(Dictionary<string, decimal> rates);
-        string GetWeakestCurrency(Dictionary<string, decimal> rates);
-        decimal GetAverageRate(Dictionary<string, decimal> rates);
+        Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate);
+        Task<List<string>> GetAvailableCurrenciesAsync(); // Nová metoda pro seznam měn
+        string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
+        string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
+        decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> timeSeries);
     }
 
     public class ExchangeRateService : IExchangeRateService
@@ -24,53 +25,63 @@ namespace BackendAPI.Services
             _httpClient = httpClient;
         }
 
-        public async Task<Dictionary<string, decimal>> GetRatesAsync(string baseCurrency, string symbols)
+        public async Task<List<string>> GetAvailableCurrenciesAsync()
         {
-            var url = $"https://open.er-api.com/v6/latest/{baseCurrency}";
+            var url = "https://api.frankfurter.app/currencies";
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             var jsonString = await response.Content.ReadAsStringAsync();
             using var document = JsonDocument.Parse(jsonString);
             
-            var result = document.RootElement.GetProperty("result").GetString();
-            if (result != "success")
-            {
-                throw new Exception("API vrátil neúspěšný status.");
-            }
+            // API vrací objekt, kde klíče jsou zkratky měn (USD, CZK...)
+            return document.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+        }
 
-            var allRatesElement = document.RootElement.GetProperty("rates");
-            var rates = new Dictionary<string, decimal>();
-            
-            var requestedSymbols = symbols.Split(',').Select(s => s.Trim().ToUpper()).ToList();
+        public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate)
+        {
+            var url = $"https://api.frankfurter.app/{startDate}..{endDate}?from={baseCurrency}&to={symbols}";
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
 
-            foreach (var property in allRatesElement.EnumerateObject())
+            var jsonString = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(jsonString);
+
+            var ratesElement = document.RootElement.GetProperty("rates");
+            var result = new Dictionary<string, Dictionary<string, decimal>>();
+
+            foreach (var dateProperty in ratesElement.EnumerateObject())
             {
-                if (requestedSymbols.Contains(property.Name))
+                var dateRates = new Dictionary<string, decimal>();
+                foreach (var currencyProperty in dateProperty.Value.EnumerateObject())
                 {
-                    rates.Add(property.Name, property.Value.GetDecimal());
+                    dateRates.Add(currencyProperty.Name, currencyProperty.Value.GetDecimal());
                 }
+                result.Add(dateProperty.Name, dateRates);
             }
 
-            return rates;
+            return result;
         }
 
-        public string GetStrongestCurrency(Dictionary<string, decimal> rates)
+        public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries)
         {
-            if (rates == null || rates.Count == 0) return string.Empty;
-            return rates.OrderByDescending(r => r.Value).First().Key;
+            if (timeSeries == null || !timeSeries.Any()) return string.Empty;
+            var allRates = timeSeries.SelectMany(d => d.Value);
+            return allRates.OrderByDescending(r => r.Value).First().Key;
         }
 
-        public string GetWeakestCurrency(Dictionary<string, decimal> rates)
+        public string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries)
         {
-            if (rates == null || rates.Count == 0) return string.Empty;
-            return rates.OrderBy(r => r.Value).First().Key;
+            if (timeSeries == null || !timeSeries.Any()) return string.Empty;
+            var allRates = timeSeries.SelectMany(d => d.Value);
+            return allRates.OrderBy(r => r.Value).First().Key;
         }
 
-        public decimal GetAverageRate(Dictionary<string, decimal> rates)
+        public decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> timeSeries)
         {
-            if (rates == null || rates.Count == 0) return 0;
-            return rates.Values.Average();
+            if (timeSeries == null || !timeSeries.Any()) return 0;
+            var allRates = timeSeries.SelectMany(d => d.Value);
+            return allRates.Average(r => r.Value);
         }
     }
 }

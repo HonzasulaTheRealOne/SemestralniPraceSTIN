@@ -4,9 +4,9 @@ namespace BackendAPI.DTOs
 {
     public class CurrencyResultDto
     {
-        public Dictionary<string, decimal> Rates { get; set; } = new Dictionary<string, decimal>();
-        public string StrongestCurrency { get; set; } = string.Empty;
-        public string WeakestCurrency { get; set; } = string.Empty;
+        public Dictionary<string, Dictionary<string, decimal>>? TimeSeriesRates { get; set; }
+        public string? StrongestCurrency { get; set; }
+        public string? WeakestCurrency { get; set; }
         public decimal AverageRate { get; set; }
     }
 }

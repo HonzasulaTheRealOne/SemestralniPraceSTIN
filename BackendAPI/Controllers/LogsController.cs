@@ -9,7 +9,7 @@ using BackendAPI.Models;
 namespace BackendAPI.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/[controller]")] // Toto vytvoří endpoint /api/logs
     public class LogsController : ControllerBase
     {
         private readonly AppDbContext _context;

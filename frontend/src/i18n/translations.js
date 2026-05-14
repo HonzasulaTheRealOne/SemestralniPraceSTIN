@@ -1,0 +1,40 @@
+export const translations = {
+    CZ: {
+        title: "Analyzátor měn",
+        logout: "Odhlásit",
+        settings: "Nastavení",
+        edit: "Upravit",
+        baseCurr: "Základní měna:",
+        watchedCurr: "Sledované měny:",
+        period: "Časové období:",
+        from: "Od:",
+        to: "Do:",
+        results: "Výsledky analýzy (za období)",
+        strongest: "Nejsilnější měna:",
+        weakest: "Nejslabší měna:",
+        average: "Průměrný kurz:",
+        chartTitle: "Vývoj kurzů v čase",
+        save: "Uložit nastavení",
+        cancel: "Zrušit",
+        lang: "Jazyk:"
+    },
+    EN: {
+        title: "Currency Analyzer",
+        logout: "Logout",
+        settings: "Settings",
+        edit: "Edit",
+        baseCurr: "Base currency:",
+        watchedCurr: "Watched currencies:",
+        period: "Date range:",
+        from: "From:",
+        to: "To:",
+        results: "Analysis Results",
+        strongest: "Strongest currency:",
+        weakest: "Weakest currency:",
+        average: "Average rate:",
+        chartTitle: "Rate history",
+        save: "Save settings",
+        cancel: "Cancel",
+        lang: "Language:"
+    }
+};

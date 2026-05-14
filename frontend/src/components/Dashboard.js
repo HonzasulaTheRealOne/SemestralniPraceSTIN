@@ -17,13 +17,13 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 function Dashboard({ onLogout }) {
     const [data, setData] = useState(null);
     const [settings, setSettings] = useState(null);
-    const [error, setError] = useState('');
+    const [allCurrencies, setAllCurrencies] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     const [isEditing, setIsEditing] = useState(false);
     const [editBase, setEditBase] = useState('');
     const [editSelected, setEditSelected] = useState('');
-
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
@@ -31,15 +31,14 @@ function Dashboard({ onLogout }) {
         const end = new Date();
         const start = new Date();
         start.setDate(end.getDate() - 10);
-        
         setEndDate(end.toISOString().split('T')[0]);
         setStartDate(start.toISOString().split('T')[0]);
+        
+        ratesService.getAvailableCurrencies().then(setAllCurrencies).catch(console.error);
     }, []);
 
     useEffect(() => {
-        if (startDate && endDate) {
-            loadDashboardData();
-        }
+        if (startDate && endDate) loadDashboardData();
     }, [startDate, endDate]);
 
     const loadDashboardData = async () => {
@@ -47,16 +46,13 @@ function Dashboard({ onLogout }) {
             setLoading(true);
             const userSettings = await settingsService.getSettings();
             setSettings(userSettings);
-            if (!isEditing) {
-                setEditBase(userSettings.baseCurrency);
-                setEditSelected(userSettings.selectedCurrencies);
-            }
+            setEditBase(userSettings.baseCurrency);
+            setEditSelected(userSettings.selectedCurrencies);
 
             const analysisData = await ratesService.analyze(startDate, endDate);
             setData(analysisData);
-            setError('');
         } catch (err) {
-            setError('Nepodařilo se načíst data z API. Zkuste to prosím později.');
+            setError('Chyba při načítání dat.');
         } finally {
             setLoading(false);
         }
@@ -64,133 +60,106 @@ function Dashboard({ onLogout }) {
 
     const handleSaveSettings = async () => {
         try {
-            setLoading(true);
             await settingsService.updateSettings({
                 id: 1,
-                baseCurrency: editBase.trim().toUpperCase(),
-                selectedCurrencies: editSelected.trim().toUpperCase()
+                baseCurrency: editBase,
+                selectedCurrencies: editSelected
             });
             setIsEditing(false);
-            await loadDashboardData(); 
+            loadDashboardData();
         } catch (err) {
-            setError('Nepodařilo se uložit nastavení.');
-            setLoading(false);
+            setError('Chyba při ukládání.');
         }
     };
 
-    const handleLogout = () => {
-        authService.logout();
-        onLogout();
+    const toggleCurrency = (currency) => {
+        let current = editSelected ? editSelected.split(',') : [];
+        if (current.includes(currency)) {
+            current = current.filter(c => c !== currency);
+        } else {
+            current.push(currency);
+        }
+        setEditSelected(current.join(','));
     };
 
     const generateChartData = () => {
-        if (!data || !settings || !data.timeSeriesRates) return { labels: [], datasets: [] };
-
+        if (!data?.timeSeriesRates || !settings) return { labels: [], datasets: [] };
         const dates = Object.keys(data.timeSeriesRates);
-        const currencies = settings.selectedCurrencies.split(',').map(c => c.trim());
-        const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
+        const selected = settings.selectedCurrencies.split(',');
+        const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'];
 
-        const datasets = currencies.map((currency, index) => {
-            return {
-                label: currency,
-                data: dates.map(date => data.timeSeriesRates[date][currency] || null),
-                borderColor: colors[index % colors.length],
-                backgroundColor: colors[index % colors.length],
-                fill: false,
+        return {
+            labels: dates,
+            datasets: selected.map((curr, i) => ({
+                label: curr,
+                data: dates.map(d => data.timeSeriesRates[d][curr]),
+                borderColor: colors[i % colors.length],
                 tension: 0.1
-            };
-        });
-
-        return { labels: dates, datasets };
+            }))
+        };
     };
 
-    const chartOptions = {
-        responsive: true,
-        plugins: {
-            legend: { position: 'top' },
-            title: { display: true, text: `Vývoj kurzů vůči ${settings?.baseCurrency || 'Základní měně'}` },
-        },
-    };
-
-    if (loading && !data) return <div style={{ textAlign: 'center', marginTop: '50px' }}>Načítání dat...</div>;
+    if (loading && !data) return <div style={{textAlign:'center', marginTop:'50px'}}>Načítání...</div>;
 
     return (
-        <div style={{ maxWidth: '900px', margin: '20px auto', padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px' }}>
-                <h2>Currency Analyzer Dashboard</h2>
-                <button onClick={handleLogout} style={{ padding: '8px 15px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                    Logout
-                </button>
+        <div style={{ maxWidth: '900px', margin: '20px auto', fontFamily: 'Arial, sans-serif', padding: '0 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+                <h2>Currency Analyzer</h2>
+                <button onClick={() => { authService.logout(); onLogout(); }} style={{backgroundColor:'#dc3545', color:'white', border:'none', padding:'8px 15px', borderRadius:'4px', cursor:'pointer'}}>Logout</button>
             </div>
 
-            {error && (
-                <div style={{ padding: '15px', backgroundColor: '#f8d7da', color: '#721c24', marginBottom: '20px', borderRadius: '4px' }}>
-                    <strong>Error:</strong> {error}
-                    <br />
-                    <button onClick={loadDashboardData} style={{ marginTop: '10px', padding: '5px 10px' }}>Zkusit znovu</button>
-                </div>
-            )}
-
-            {data && settings && (
-                <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', flexWrap: 'wrap' }}>
-                    
-                    <div style={{ flex: '1 1 300px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px', border: '1px solid #ddd' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <h3 style={{ margin: 0 }}>Nastavení</h3>
-                            {!isEditing && (
-                                <button onClick={() => setIsEditing(true)} style={{ padding: '5px 10px', cursor: 'pointer' }}>Upravit</button>
-                            )}
-                        </div>
-
-                        {isEditing ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px' }}>Základní měna:</label>
-                                    <input value={editBase} onChange={(e) => setEditBase(e.target.value)} style={{ width: '100%', padding: '5px' }} />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '14px' }}>Sledované měny:</label>
-                                    <input value={editSelected} onChange={(e) => setEditSelected(e.target.value)} style={{ width: '100%', padding: '5px' }} />
-                                </div>
-                                <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
-                                    <button onClick={handleSaveSettings} style={{ backgroundColor: '#28a745', color: 'white', border: 'none', padding: '5px 10px', cursor: 'pointer', borderRadius: '3px' }}>Uložit</button>
-                                    <button onClick={() => setIsEditing(false)} style={{ backgroundColor: '#6c757d', color: 'white', border: 'none', padding: '5px 10px', cursor: 'pointer', borderRadius: '3px' }}>Zrušit</button>
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                <p><strong>Základní měna:</strong> {settings.baseCurrency}</p>
-                                <p><strong>Sledované měny:</strong> {settings.selectedCurrencies}</p>
-                            </>
-                        )}
-                        <hr style={{ margin: '15px 0' }} />
-                        <h3 style={{ margin: '0 0 10px 0' }}>Časové období</h3>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '12px' }}>Od:</label>
-                                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ padding: '5px' }} />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '12px' }}>Do:</label>
-                                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ padding: '5px' }} />
-                            </div>
-                        </div>
+            <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
+                <div style={{ flex: 1, padding: '15px', backgroundColor: '#f8f9fa', border: '1px solid #ddd', borderRadius: '8px' }}>
+                    <div style={{display:'flex', justifyContent:'space-between'}}>
+                        <h3>Nastavení</h3>
+                        {!isEditing && <button onClick={() => setIsEditing(true)}>Upravit</button>}
                     </div>
-                    
-                    <div style={{ flex: '1 1 300px', padding: '15px', backgroundColor: '#e9ecef', borderRadius: '5px', border: '1px solid #ddd' }}>
-                        <h3 style={{ margin: '0 0 10px 0' }}>Výsledky analýzy (za období)</h3>
-                        <p><strong>Nejsilnější měna:</strong> {data.strongestCurrency}</p>
-                        <p><strong>Nejslabší měna:</strong> {data.weakestCurrency}</p>
-                        <p><strong>Průměrný kurz:</strong> {data.averageRate.toFixed(4)}</p>
-                    </div>
-                </div>
-            )}
 
-            {data && (
-                <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '5px', backgroundColor: 'white' }}>
-                    <Line data={generateChartData()} options={chartOptions} />
+                    {isEditing ? (
+                        <div>
+                            <label>Základní měna:</label>
+                            <select value={editBase} onChange={e => setEditBase(e.target.value)} style={{width:'100%', marginBottom:'10px'}}>
+                                {allCurrencies.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            
+                            <label>Sledované měny:</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px', maxHeight: '150px', overflowY: 'auto', border: '1px solid #ccc', padding: '5px', marginBottom: '10px' }}>
+                                {allCurrencies.map(c => (
+                                    <label key={c} style={{fontSize:'12px'}}>
+                                        <input type="checkbox" checked={editSelected.split(',').includes(c)} onChange={() => toggleCurrency(c)} /> {c}
+                                    </label>
+                                ))}
+                            </div>
+
+                            <label>Jazyk:</label>
+                            <select style={{width:'100%', marginBottom:'10px'}}><option>CZ</option><option>EN</option></select>
+
+                            <button onClick={handleSaveSettings} style={{backgroundColor:'#28a745', color:'white', width:'100%', padding:'10px', border:'none', borderRadius:'4px', cursor:'pointer'}}>Uložit nastavení</button>
+                        </div>
+                    ) : (
+                        <>
+                            <p><strong>Základní:</strong> {settings?.baseCurrency}</p>
+                            <p><strong>Sledované:</strong> {settings?.selectedCurrencies}</p>
+                            <p><strong>Období:</strong> {startDate} až {endDate}</p>
+                            <div style={{display:'flex', gap:'5px'}}>
+                                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                            </div>
+                        </>
+                    )}
                 </div>
-            )}
+
+                <div style={{ flex: 1, padding: '15px', backgroundColor: '#e9ecef', border: '1px solid #ddd', borderRadius: '8px' }}>
+                    <h3>Výsledky analýzy</h3>
+                    <p><strong>Nejsilnější měna:</strong> {data?.strongestCurrency}</p>
+                    <p><strong>Nejslabší měna:</strong> {data?.weakestCurrency}</p>
+                    <p><strong>Průměrný kurz:</strong> {data?.averageRate.toFixed(4)}</p>
+                </div>
+            </div>
+
+            <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'white' }}>
+                <Line data={generateChartData()} options={{ responsive: true, plugins: { title: { display: true, text: 'Vývoj kurzů v čase' } } }} />
+            </div>
         </div>
     );
 }

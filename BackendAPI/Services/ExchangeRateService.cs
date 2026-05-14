@@ -10,6 +10,7 @@ namespace BackendAPI.Services
     public interface IExchangeRateService
     {
         Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate);
+        Task<List<string>> GetAvailableCurrenciesAsync(); // Nová metoda pro seznam měn
         string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
         string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> timeSeries);
         decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> timeSeries);
@@ -22,6 +23,19 @@ namespace BackendAPI.Services
         public ExchangeRateService(HttpClient httpClient)
         {
             _httpClient = httpClient;
+        }
+
+        public async Task<List<string>> GetAvailableCurrenciesAsync()
+        {
+            var url = "https://api.frankfurter.app/currencies";
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            var jsonString = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(jsonString);
+            
+            // API vrací objekt, kde klíče jsou zkratky měn (USD, CZK...)
+            return document.RootElement.EnumerateObject().Select(p => p.Name).ToList();
         }
 
         public async Task<Dictionary<string, Dictionary<string, decimal>>> GetTimeSeriesRatesAsync(string baseCurrency, string symbols, string startDate, string endDate)

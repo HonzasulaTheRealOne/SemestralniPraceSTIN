@@ -1,9 +1,12 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5134/api';
+const API_URL = 'https://stin-backend-jan-frantisek-sula.onrender.com/api'; 
 
 const api = axios.create({
     baseURL: API_URL,
+    headers: {
+        'Content-Type': 'application/json'
+    }
 });
 
 api.interceptors.request.use((config) => {
@@ -24,23 +27,19 @@ export const authService = {
     },
     logout: () => {
         localStorage.removeItem('token');
-    },
-    isAuthenticated: () => {
-        return !!localStorage.getItem('token');
     }
 };
 
 export const ratesService = {
-    getAvailableCurrencies: async () => {
-        const response = await api.get('/rates/currencies');
+    analyze: async (startDate, endDate) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const response = await api.get(`/rates/analyze?${params.toString()}`);
         return response.data;
     },
-    analyze: async (startDate, endDate) => {
-        let url = '/rates/analyze';
-        if (startDate && endDate) {
-            url += `?startDate=${startDate}&endDate=${endDate}`;
-        }
-        const response = await api.get(url);
+    getAvailableCurrencies: async () => {
+        const response = await api.get('/rates/currencies');
         return response.data;
     }
 };

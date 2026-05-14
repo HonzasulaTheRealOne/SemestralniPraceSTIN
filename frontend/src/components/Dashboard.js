@@ -170,8 +170,16 @@ function Dashboard({ onLogout }) {
                 </div>
             </div>
 
-            <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'white' }}>
-                <Line data={generateChartData()} options={{ responsive: true, plugins: { title: { display: true, text: t.chartTitle } } }} />
+            {/* OPRAVENÁ ČÁST PRO GRAF: Přidána pevná výška 400px a maintainAspectRatio: false */}
+            <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: 'white', height: '400px', position: 'relative' }}>
+                <Line 
+                    data={generateChartData()} 
+                    options={{ 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        plugins: { title: { display: true, text: t.chartTitle } } 
+                    }} 
+                />
             </div>
         </div>
     );

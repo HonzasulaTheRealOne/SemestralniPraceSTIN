@@ -26,25 +26,30 @@ namespace BackendAPI.Services
 
         public async Task<Dictionary<string, decimal>> GetRatesAsync(string baseCurrency, string symbols)
         {
-            var url = $"https://api.exchangerate.host/latest?base={baseCurrency}&symbols={symbols}";
+            var url = $"https://open.er-api.com/v6/latest/{baseCurrency}";
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             var jsonString = await response.Content.ReadAsStringAsync();
             using var document = JsonDocument.Parse(jsonString);
             
-            var success = document.RootElement.GetProperty("success").GetBoolean();
-            if (!success)
+            var result = document.RootElement.GetProperty("result").GetString();
+            if (result != "success")
             {
                 throw new Exception("API vrátil neúspěšný status.");
             }
 
-            var ratesElement = document.RootElement.GetProperty("rates");
+            var allRatesElement = document.RootElement.GetProperty("rates");
             var rates = new Dictionary<string, decimal>();
+            
+            var requestedSymbols = symbols.Split(',').Select(s => s.Trim().ToUpper()).ToList();
 
-            foreach (var property in ratesElement.EnumerateObject())
+            foreach (var property in allRatesElement.EnumerateObject())
             {
-                rates.Add(property.Name, property.Value.GetDecimal());
+                if (requestedSymbols.Contains(property.Name))
+                {
+                    rates.Add(property.Name, property.Value.GetDecimal());
+                }
             }
 
             return rates;
@@ -53,14 +58,12 @@ namespace BackendAPI.Services
         public string GetStrongestCurrency(Dictionary<string, decimal> rates)
         {
             if (rates == null || rates.Count == 0) return string.Empty;
-            // Nejsilnější měna má nejvyšší nominální hodnotu
             return rates.OrderByDescending(r => r.Value).First().Key;
         }
 
         public string GetWeakestCurrency(Dictionary<string, decimal> rates)
         {
             if (rates == null || rates.Count == 0) return string.Empty;
-            // Nejslabší měna má nejnižší nominální hodnotu
             return rates.OrderBy(r => r.Value).First().Key;
         }
 

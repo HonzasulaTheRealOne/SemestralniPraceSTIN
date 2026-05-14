@@ -70,5 +70,31 @@ namespace BackendAPI.Tests
             Assert.Equal("USD", service.GetWeakestCurrency(data));
             Assert.Equal(15m, service.GetAverageRate(data));
         }
+
+        [Fact]
+        public async Task GetAvailableCurrenciesAsync_Success_ReturnsList()
+        {
+            var json = "{\"currencies\":{\"EUR\":\"Euro\",\"USD\":\"Dollar\"}}";
+            var client = new HttpClient(new MockHttpMessageHandler(json));
+            var service = new ExchangeRateService(client);
+
+            var result = await service.GetAvailableCurrenciesAsync();
+
+            Assert.Equal(2, result.Count);
+            Assert.Contains("EUR", result);
+        }
+
+        [Fact]
+        public async Task GetTimeSeriesRatesAsync_WhenApiThrows_LogsErrorToDb()
+        {
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.NotFound));
+            var service = new ExchangeRateService(client);
+            var db = GetDb();
+
+            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-01-01", "2026-01-01", db);
+
+            Assert.NotEmpty(db.Logs);
+            Assert.Empty(result);
+        }
     }
 }

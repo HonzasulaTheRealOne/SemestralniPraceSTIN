@@ -28,7 +28,7 @@ namespace BackendAPI.Services
         public ExchangeRateService(HttpClient httpClient, IConfiguration config)
         {
             _httpClient = httpClient;
-            _apiKey = config["ExchangeRateApiKey"] ?? "7983b9057aad82a308abc5a9f2f7d0a8";
+            _apiKey = config["ExchangeRateApiKey"] ?? "1093ecff7045dec8728ddb583dcedbd1";
         }
 
         public async Task<List<string>> GetAvailableCurrenciesAsync()

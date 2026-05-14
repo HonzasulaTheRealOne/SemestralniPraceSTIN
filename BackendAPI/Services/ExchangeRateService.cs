@@ -49,17 +49,15 @@ namespace BackendAPI.Services
                     var content = await response.Content.ReadAsStringAsync();
                     var data = JsonDocument.Parse(content);
                     var result = ParseRates(data);
-
                     await SaveRatesToCache(result, baseCurr, db);
                     return result;
                 }
-                throw new Exception("API service unavailable.");
+                throw new Exception("API Error");
             }
             catch (Exception ex)
             {
-                db.Logs.Add(new Log { Message = $"API Error: {ex.Message}", Timestamp = DateTime.UtcNow });
+                db.Logs.Add(new Log { Message = ex.Message });
                 await db.SaveChangesAsync();
-
                 return await GetRatesFromCache(baseCurr, symbols.Split(','), db);
             }
         }
@@ -71,10 +69,7 @@ namespace BackendAPI.Services
                 foreach (var rateEntry in dateEntry.Value)
                 {
                     var exists = await db.CachedRates.AnyAsync(r => r.Date == dateEntry.Key && r.Currency == rateEntry.Key && r.BaseCurrency == baseCurr);
-                    if (!exists)
-                    {
-                        db.CachedRates.Add(new CachedRate { Date = dateEntry.Key, BaseCurrency = baseCurr, Currency = rateEntry.Key, Rate = rateEntry.Value });
-                    }
+                    if (!exists) db.CachedRates.Add(new CachedRate { Date = dateEntry.Key, BaseCurrency = baseCurr, Currency = rateEntry.Key, Rate = rateEntry.Value });
                 }
             }
             await db.SaveChangesAsync();
@@ -82,39 +77,26 @@ namespace BackendAPI.Services
 
         private async Task<Dictionary<string, Dictionary<string, decimal>>> GetRatesFromCache(string baseCurr, string[] symbols, AppDbContext db)
         {
-            var cached = await db.CachedRates
-                .Where(r => r.BaseCurrency == baseCurr && symbols.Contains(r.Currency))
-                .ToListAsync();
-
-            return cached.GroupBy(r => r.Date).ToDictionary(
-                g => g.Key,
-                g => g.ToDictionary(r => r.Currency, r => r.Rate)
-            );
+            var cached = await db.CachedRates.Where(r => r.BaseCurrency == baseCurr && symbols.Contains(r.Currency)).ToListAsync();
+            return cached.GroupBy(r => r.Date).ToDictionary(g => g.Key, g => g.ToDictionary(r => r.Currency, r => r.Rate));
         }
 
         private Dictionary<string, Dictionary<string, decimal>> ParseRates(JsonDocument data)
         {
             var result = new Dictionary<string, Dictionary<string, decimal>>();
             if (!data.RootElement.TryGetProperty("rates", out var ratesProp)) return result;
-
             foreach (var dateProp in ratesProp.EnumerateObject())
             {
                 var dayRates = new Dictionary<string, decimal>();
-                foreach (var currProp in dateProp.Value.EnumerateObject())
-                    dayRates.Add(currProp.Name, currProp.Value.GetDecimal());
+                foreach (var currProp in dateProp.Value.EnumerateObject()) dayRates.Add(currProp.Name, currProp.Value.GetDecimal());
                 result.Add(dateProp.Name, dayRates);
             }
             return result;
         }
 
-        public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> data) =>
-            data.SelectMany(d => d.Value).OrderByDescending(v => v.Value).FirstOrDefault().Key ?? "";
-
-        public string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> data) =>
-            data.SelectMany(d => d.Value).OrderBy(v => v.Value).FirstOrDefault().Key ?? "";
-
-        public decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> data)
-        {
+        public string GetStrongestCurrency(Dictionary<string, Dictionary<string, decimal>> data) => data.SelectMany(d => d.Value).OrderByDescending(v => v.Value).FirstOrDefault().Key ?? "";
+        public string GetWeakestCurrency(Dictionary<string, Dictionary<string, decimal>> data) => data.SelectMany(d => d.Value).OrderBy(v => v.Value).FirstOrDefault().Key ?? "";
+        public decimal GetAverageRate(Dictionary<string, Dictionary<string, decimal>> data) {
             var allValues = data.SelectMany(d => d.Value.Values).ToList();
             return allValues.Any() ? allValues.Average() : 0;
         }

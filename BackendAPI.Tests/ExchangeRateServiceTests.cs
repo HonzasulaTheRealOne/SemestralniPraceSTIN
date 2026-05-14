@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -14,52 +15,60 @@ namespace BackendAPI.Tests
     {
         private readonly string _response;
         private readonly HttpStatusCode _statusCode;
-        public MockHttpMessageHandler(string response, HttpStatusCode statusCode = HttpStatusCode.OK)
-        {
-            _response = response;
-            _statusCode = statusCode;
-        }
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
+        public MockHttpMessageHandler(string response, HttpStatusCode statusCode = HttpStatusCode.OK) { _response = response; _statusCode = statusCode; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
             return Task.FromResult(new HttpResponseMessage { StatusCode = _statusCode, Content = new StringContent(_response) });
         }
     }
 
     public class ExchangeRateServiceTests
     {
-        private AppDbContext GetInMemoryDbContext()
-        {
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseInMemoryDatabase(databaseName: System.Guid.NewGuid().ToString())
-                .Options;
-            return new AppDbContext(options);
+        private AppDbContext GetDb() {
+            var opt = new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            return new AppDbContext(opt);
         }
 
         [Fact]
-        public async Task GetTimeSeriesRatesAsync_ParsesJsonCorrectly()
+        public async Task GetTimeSeries_ApiSuccess_SavesToCache()
         {
-            var json = "{\"rates\":{\"2026-05-01\":{\"USD\":1.08}}}";
+            var json = "{\"rates\":{\"2026-01-01\":{\"USD\":1.1}}}";
             var client = new HttpClient(new MockHttpMessageHandler(json));
             var service = new ExchangeRateService(client);
-            var db = GetInMemoryDbContext();
+            var db = GetDb();
 
-            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-05-01", "2026-05-01", db);
+            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-01-01", "2026-01-01", db);
 
-            Assert.True(result.ContainsKey("2026-05-01"));
-            Assert.Equal(1.08m, result["2026-05-01"]["USD"]);
+            Assert.Single(result);
+            Assert.Equal(1.1m, result["2026-01-01"]["USD"]);
+            Assert.True(await db.CachedRates.AnyAsync(r => r.Currency == "USD"));
         }
 
         [Fact]
-        public async Task GetTimeSeriesRatesAsync_ApiError_ReturnsCache()
+        public async Task GetTimeSeries_ApiFail_ReturnsFromCacheAndLogs()
         {
-            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.BadRequest));
+            var db = GetDb();
+            db.CachedRates.Add(new CachedRate { Date = "2026-01-01", BaseCurrency = "EUR", Currency = "USD", Rate = 1.2m });
+            await db.SaveChangesAsync();
+
+            var client = new HttpClient(new MockHttpMessageHandler("", HttpStatusCode.InternalServerError));
             var service = new ExchangeRateService(client);
-            var db = GetInMemoryDbContext();
 
-            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-05-01", "2026-05-01", db);
+            var result = await service.GetTimeSeriesRatesAsync("EUR", "USD", "2026-01-01", "2026-01-01", db);
 
-            Assert.Empty(result);
+            Assert.Equal(1.2m, result["2026-01-01"]["USD"]);
             Assert.NotEmpty(db.Logs);
+        }
+
+        [Fact]
+        public void Calculations_WorkCorrectly()
+        {
+            var service = new ExchangeRateService(null!);
+            var data = new Dictionary<string, Dictionary<string, decimal>> {
+                { "d1", new Dictionary<string, decimal> { { "USD", 10m }, { "CZK", 20m } } }
+            };
+            Assert.Equal("CZK", service.GetStrongestCurrency(data));
+            Assert.Equal("USD", service.GetWeakestCurrency(data));
+            Assert.Equal(15m, service.GetAverageRate(data));
         }
     }
 }
